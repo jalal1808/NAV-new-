@@ -28,10 +28,7 @@ const columns = [
     key: "qty",
     align: "right",
     render: (_, r) => (
-      <span>
-        {fmt(r.quantity_sys, 0)}{" "}
-        <DiffCell sys={r.quantity_sys} cust={r.quantity_cust} dec={0} tol={0} />
-      </span>
+      <span>{fmt(r.quantity_sys, 0)}{" "}<DiffCell sys={r.quantity_sys} cust={r.quantity_cust} dec={0} tol={0} /></span>
     ),
   },
   {
@@ -46,10 +43,7 @@ const columns = [
     key: "price",
     align: "right",
     render: (_, r) => (
-      <span>
-        {fmt(r.price_sys, 4)}{" "}
-        <DiffCell sys={r.price_sys} cust={r.price_cust} dec={4} tol={0.01} />
-      </span>
+      <span>{fmt(r.price_sys, 4)}{" "}<DiffCell sys={r.price_sys} cust={r.price_cust} dec={4} tol={0.01} /></span>
     ),
   },
   {
@@ -57,36 +51,24 @@ const columns = [
     key: "mv",
     align: "right",
     render: (_, r) => (
-      <span>
-        {fmt(r.market_value_sys, 0)}{" "}
-        <DiffCell sys={r.market_value_sys} cust={r.market_value_cust} dec={0} tol={0.01} />
-      </span>
+      <span>{fmt(r.market_value_sys, 0)}{" "}<DiffCell sys={r.market_value_sys} cust={r.market_value_cust} dec={0} tol={0.01} /></span>
     ),
   },
 ];
 
-export default function PortfolioTable({ portfolioSummary }) {
+export default function PortfolioTable({ portfolioSummary, portfolioStatus }) {
   if (!portfolioSummary || portfolioSummary.length === 0) return null;
 
   const dataSource = portfolioSummary.map((r, i) => ({ ...r, key: i }));
-
-  const totalFail = portfolioSummary.filter(
-    (r) =>
-      Math.abs((r.quantity_sys ?? 0) - (r.quantity_cust ?? 0)) > 0 ||
-      Math.abs((r.price_sys ?? 0) - (r.price_cust ?? 0)) > 0.01 ||
-      Math.abs((r.market_value_sys ?? 0) - (r.market_value_cust ?? 0)) > 0.01
-  ).length;
+  const overallTag = (
+    <Tag color={portfolioStatus === "PASS" ? "success" : "error"} style={{ fontWeight: 700, fontSize: 13 }}>
+      {portfolioStatus}
+    </Tag>
+  );
 
   return (
     <Card
-      title={
-        <span>
-          Portfolio Reconciliation — System Report vs Custodian&nbsp;&nbsp;
-          <Tag color={totalFail === 0 ? "success" : "error"}>
-            {totalFail === 0 ? "All matched" : `${totalFail} stock(s) with discrepancies`}
-          </Tag>
-        </span>
-      }
+      title={<span>Portfolio Reconciliation — System Report vs Custodian &nbsp;{overallTag}</span>}
       style={{ borderRadius: 12, marginBottom: 24 }}
     >
       <Table

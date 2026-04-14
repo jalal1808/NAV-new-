@@ -4,14 +4,15 @@ import {
   Legend,
   Line,
   LineChart,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from "recharts";
 
-export default function NAVTrendChart({ navResults }) {
-  if (!navResults || navResults.length === 0) {
+export default function NAVTrendChart({ dates, selectedDate }) {
+  if (!dates || dates.length === 0) {
     return (
       <Card title="NAV Per Unit — Trend" style={{ borderRadius: 12, marginBottom: 24 }}>
         <Empty description="No data" />
@@ -19,11 +20,22 @@ export default function NAVTrendChart({ navResults }) {
     );
   }
 
-  const data = navResults.map((r) => ({
-    date: r.date,
-    Submitted: r.fields?.["NAV Per Unit"]?.submitted ?? null,
-    Calculated: r.fields?.["NAV Per Unit"]?.calculated ?? null,
-  }));
+  // Only plot dates where NAV was not blocked
+  const data = dates
+    .filter((d) => !d.nav_blocked && d.nav_result)
+    .map((d) => ({
+      date: d.date,
+      Submitted: d.nav_result.fields?.["NAV Per Unit"]?.submitted ?? null,
+      Calculated: d.nav_result.fields?.["NAV Per Unit"]?.calculated ?? null,
+    }));
+
+  if (data.length === 0) {
+    return (
+      <Card title="NAV Per Unit — Trend" style={{ borderRadius: 12, marginBottom: 24 }}>
+        <Empty description="No unblocked NAV dates to chart" />
+      </Card>
+    );
+  }
 
   const allVals = data.flatMap((d) => [d.Submitted, d.Calculated]).filter((v) => v != null);
   const minVal = Math.min(...allVals);
@@ -32,7 +44,7 @@ export default function NAVTrendChart({ navResults }) {
 
   return (
     <Card
-      title="NAV Per Unit — Submitted vs Calculated"
+      title="NAV Per Unit — Submitted vs Calculated (all dates)"
       style={{ borderRadius: 12, marginBottom: 24 }}
     >
       <ResponsiveContainer width="100%" height={260}>
@@ -47,6 +59,16 @@ export default function NAVTrendChart({ navResults }) {
           />
           <Tooltip formatter={(v) => v?.toFixed(4)} />
           <Legend />
+          {/* Highlight selected date */}
+          {selectedDate && data.find((d) => d.date === selectedDate) && (
+            <ReferenceLine
+              x={selectedDate}
+              stroke="#faad14"
+              strokeWidth={2}
+              strokeDasharray="4 2"
+              label={{ value: "Selected", position: "top", fontSize: 11, fill: "#faad14" }}
+            />
+          )}
           <Line
             type="monotone"
             dataKey="Submitted"

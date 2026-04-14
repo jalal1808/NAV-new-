@@ -1,58 +1,68 @@
 import { BankOutlined, FundOutlined, LineChartOutlined, TeamOutlined } from "@ant-design/icons";
-import { Card, Col, Row, Statistic, Tag } from "antd";
+import { Card, Col, Row, Tag } from "antd";
 
 const fmt = (val, decimals = 2) =>
   val == null ? "—" : Number(val).toLocaleString("en-US", { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
 
-export default function KPICards({ kpi, fundInfo }) {
-  if (!kpi || Object.keys(kpi).length === 0) return null;
+export default function KPICards({ dateData, fundInfo, kpi }) {
+  if (!kpi) return null;
+
+  const navFields = dateData?.nav_result?.fields ?? {};
+  const navPerUnit = navFields["NAV Per Unit"];
+  const netAssets = navFields["Net Assets"];
+  const unitsOut = navFields["Units Outstanding"];
+  const totalInv = navFields["Total Investment"];
 
   const navMatch =
-    kpi.nav_per_unit != null &&
-    kpi.calculated_nav_per_unit != null &&
-    Math.abs(kpi.nav_per_unit - kpi.calculated_nav_per_unit) <= 0.01;
+    navPerUnit &&
+    Math.abs(navPerUnit.submitted - navPerUnit.calculated) <= 0.01;
 
   const cards = [
     {
       title: "Fund",
       value: fundInfo?.name || "—",
-      sub: `Code: ${fundInfo?.code || "—"}  •  ${kpi.latest_date || ""}`,
+      sub: `Code: ${fundInfo?.code || "—"}  •  ${dateData?.date || ""}`,
       icon: <BankOutlined style={{ color: "#1677ff", fontSize: 22 }} />,
       color: "#e6f4ff",
     },
     {
       title: "NAV Per Unit",
-      value: fmt(kpi.nav_per_unit, 4),
-      sub: (
+      value: navPerUnit ? fmt(navPerUnit.submitted, 4) : "—",
+      sub: dateData?.nav_blocked ? (
+        <span style={{ color: "#ff4d4f" }}>NAV blocked — portfolio recon failed</span>
+      ) : navPerUnit ? (
         <span>
           Calculated:{" "}
           <strong style={{ color: navMatch ? "#52c41a" : "#ff4d4f" }}>
-            {fmt(kpi.calculated_nav_per_unit, 4)}
+            {fmt(navPerUnit.calculated, 4)}
           </strong>
         </span>
-      ),
+      ) : "—",
       icon: <LineChartOutlined style={{ color: "#52c41a", fontSize: 22 }} />,
       color: "#f6ffed",
     },
     {
       title: "Net Assets",
-      value: `SAR ${fmt(kpi.net_assets, 0)}`,
-      sub: `Total Investment: SAR ${fmt(kpi.total_investment, 0)}`,
+      value: netAssets ? `SAR ${fmt(netAssets.submitted, 0)}` : "—",
+      sub: totalInv ? `Total Investment: SAR ${fmt(totalInv.submitted, 0)}` : "—",
       icon: <FundOutlined style={{ color: "#fa8c16", fontSize: 22 }} />,
       color: "#fff7e6",
     },
     {
-      title: "Units Outstanding",
-      value: fmt(kpi.units_outstanding, 0),
+      title: "Validation Summary",
+      value: unitsOut ? fmt(unitsOut.submitted, 0) : "—",
       sub: (
         <span>
-          NAV dates{" "}
-          <Tag color={kpi.dates_passed === kpi.total_dates ? "success" : "error"}>
-            {kpi.dates_passed}/{kpi.total_dates} PASSED
+          NAV{" "}
+          <Tag color={kpi.dates_nav_passed === kpi.total_dates ? "success" : "error"}>
+            {kpi.dates_nav_passed}/{kpi.total_dates} PASSED
           </Tag>
-          &nbsp;Portfolio{" "}
-          <Tag color={kpi.portfolio_passed === kpi.portfolio_checks ? "success" : "error"}>
-            {kpi.portfolio_passed}/{kpi.portfolio_checks} OK
+          {kpi.dates_nav_blocked > 0 && (
+            <Tag color="default">{kpi.dates_nav_blocked} BLOCKED</Tag>
+          )}
+          Portfolio{" "}
+          <Tag color={kpi.dates_portfolio_passed === kpi.total_dates ? "success" : "error"}>
+            {kpi.dates_portfolio_passed}/{kpi.total_dates} OK
           </Tag>
         </span>
       ),

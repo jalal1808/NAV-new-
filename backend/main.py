@@ -3,7 +3,6 @@ import sys
 import os
 from typing import Optional
 
-# Allow importing nav_validator from the parent directory
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import pandas as pd
@@ -11,9 +10,9 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
 from nav_validator import (
-    parse_custodian_data,
     parse_nav_blocks,
-    parse_system_report,
+    parse_system_report_by_date,
+    parse_custodian_by_date,
     validate_nav_blocks,
     validate_portfolio,
 )
@@ -31,16 +30,6 @@ app.add_middleware(
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-def _read_sheet(file_bytes: bytes, preferred_sheet: str, header) -> pd.DataFrame:
-    """
-    Open an Excel file and return the preferred sheet as a DataFrame.
-    Falls back to the first sheet if the preferred name is not found.
-    """
-    xls = pd.ExcelFile(io.BytesIO(file_bytes))
-    target = preferred_sheet if preferred_sheet in xls.sheet_names else xls.sheet_names[0]
-    return pd.read_excel(xls, sheet_name=target, header=header)
-
 
 def _clean(obj):
     """Recursively replace NaN with None for JSON serialisation."""
@@ -76,27 +65,39 @@ def build_portfolio_summary(sys_holdings: dict, cust_holdings: dict) -> list:
     return rows
 
 
+def serialise_nav_result(r: dict) -> dict:
+    """Convert tuple-based fields to {submitted, calculated} dicts."""
+    return {
+        "date": r["date"],
+        "status": r["status"],
+        "fields": {
+            field: {"submitted": left, "calculated": right}
+            for field, (left, right) in r["fields"].items()
+        },
+        "discrepancies": r["discrepancies"],
+    }
+
+
+# ---------------------------------------------------------------------------
+# Core validation — per-date loop
+# ---------------------------------------------------------------------------
+
 def run_validation(
     nav_df: Optional[pd.DataFrame],
     sys_df: Optional[pd.DataFrame],
     cust_df: Optional[pd.DataFrame],
     source_label: str = "",
 ) -> dict:
-    """
-    Core validation logic shared by both endpoints.
-    Accepts DataFrames directly; returns the full response dict.
-    """
     response: dict = {"source": source_label}
 
-    # ------------------------------------------------------------------ NAV --
-    nav_results_raw = []
+    # Parse all date blocks
+    nav_blocks = parse_nav_blocks(nav_df) if nav_df is not None else []
+    sys_by_date = parse_system_report_by_date(sys_df) if sys_df is not None else {}
+    cust_by_date = parse_custodian_by_date(cust_df) if cust_df is not None else {}
+
+    # Extract fund info from NAV sheet
     fund_info: dict = {}
-
     if nav_df is not None:
-        nav_blocks = parse_nav_blocks(nav_df)
-        nav_results_raw = validate_nav_blocks(nav_blocks)
-
-        # Extract fund name / code from the NAV sheet
         for _, row in nav_df.iterrows():
             label = str(row.iloc[0]).strip()
             if label == "Fund":
@@ -106,54 +107,49 @@ def run_validation(
             if len(fund_info) == 2:
                 break
 
-    nav_results = [
-        {
-            "date": r["date"],
-            "status": r["status"],
-            "fields": {
-                field: {"submitted": left, "calculated": right}
-                for field, (left, right) in r["fields"].items()
-            },
-            "discrepancies": r["discrepancies"],
-        }
-        for r in nav_results_raw
-    ]
+    # Per-date validation with portfolio gating NAV
+    dates_output = []
+    for block in nav_blocks:
+        date = block["date"]
+        sys_h = sys_by_date.get(date, {})
+        cust_h = cust_by_date.get(date, {})
 
-    response["nav_results"] = nav_results
+        port_results = validate_portfolio(sys_h, cust_h) if (sys_h or cust_h) else []
+        port_passed = all(r["status"] == "PASS" for r in port_results) if port_results else True
+        port_summary = build_portfolio_summary(sys_h, cust_h)
+
+        nav_result_raw = validate_nav_blocks([block])[0]
+        nav_blocked = not port_passed
+
+        dates_output.append(
+            {
+                "date": date,
+                "portfolio_status": "PASS" if port_passed else "FAIL",
+                "portfolio_results": _clean(port_results),
+                "portfolio_summary": _clean(port_summary),
+                "nav_status": "BLOCKED" if nav_blocked else nav_result_raw["status"],
+                "nav_result": None if nav_blocked else serialise_nav_result(nav_result_raw),
+                "nav_blocked": nav_blocked,
+                "nav_block_reason": (
+                    None if port_passed
+                    else "Portfolio reconciliation failed — NAV cannot be confirmed for this date."
+                ),
+            }
+        )
+
+    response["dates"] = dates_output
     response["fund_info"] = fund_info
 
-    # ------------------------------------------------------------ Portfolio --
-    portfolio_results = []
-    portfolio_summary = []
+    # Global KPI summary
+    total = len(dates_output)
+    response["kpi"] = {
+        "total_dates": total,
+        "dates_nav_passed": sum(1 for d in dates_output if d["nav_status"] == "PASS"),
+        "dates_nav_failed": sum(1 for d in dates_output if d["nav_status"] == "FAIL"),
+        "dates_nav_blocked": sum(1 for d in dates_output if d["nav_blocked"]),
+        "dates_portfolio_passed": sum(1 for d in dates_output if d["portfolio_status"] == "PASS"),
+    }
 
-    if sys_df is not None and cust_df is not None:
-        sys_holdings = parse_system_report(sys_df)
-        cust_holdings = parse_custodian_data(cust_df)
-        portfolio_results = validate_portfolio(sys_holdings, cust_holdings)
-        portfolio_summary = build_portfolio_summary(sys_holdings, cust_holdings)
-
-    response["portfolio_results"] = _clean(portfolio_results)
-    response["portfolio_summary"] = _clean(portfolio_summary)
-
-    # --------------------------------------------------------------- KPIs ---
-    kpi: dict = {}
-    if nav_results:
-        latest = nav_results[-1]
-        fields = latest["fields"]
-        kpi = {
-            "latest_date": latest["date"],
-            "nav_per_unit": fields.get("NAV Per Unit", {}).get("submitted"),
-            "calculated_nav_per_unit": fields.get("NAV Per Unit", {}).get("calculated"),
-            "net_assets": fields.get("Net Assets", {}).get("submitted"),
-            "units_outstanding": fields.get("Units Outstanding", {}).get("submitted"),
-            "total_investment": fields.get("Total Investment", {}).get("submitted"),
-            "total_dates": len(nav_results),
-            "dates_passed": sum(1 for r in nav_results if r["status"] == "PASS"),
-            "portfolio_checks": len(portfolio_results),
-            "portfolio_passed": sum(1 for r in portfolio_results if r["status"] == "PASS"),
-        }
-
-    response["kpi"] = kpi
     return response
 
 
@@ -176,7 +172,7 @@ async def validate(file: UploadFile = File(...)):
 
     nav_df = pd.read_excel(xls, sheet_name="NAV", header=None) if "NAV" in available else None
     sys_df = pd.read_excel(xls, sheet_name="System Report", header=None) if "System Report" in available else None
-    cust_df = pd.read_excel(xls, sheet_name="CustodianData", header=0) if "CustodianData" in available else None
+    cust_df = pd.read_excel(xls, sheet_name="CustodianData", header=None) if "CustodianData" in available else None
 
     result = run_validation(nav_df, sys_df, cust_df, source_label=file.filename)
     result["filename"] = file.filename
@@ -202,19 +198,18 @@ async def validate_sheets(
         if upload is None:
             return None
         if not upload.filename.endswith((".xlsx", ".xls")):
-            raise HTTPException(
-                status_code=400,
-                detail=f"'{upload.filename}' is not a valid Excel file.",
-            )
+            raise HTTPException(status_code=400, detail=f"'{upload.filename}' is not a valid Excel file.")
         try:
             contents = await upload.read()
-            return _read_sheet(contents, preferred, header)
+            xls = pd.ExcelFile(io.BytesIO(contents))
+            target = preferred if preferred in xls.sheet_names else xls.sheet_names[0]
+            return pd.read_excel(xls, sheet_name=target, header=header)
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"Could not read '{upload.filename}': {e}")
 
     nav_df = await _read(nav_file, "NAV", None)
     sys_df = await _read(system_report_file, "System Report", None)
-    cust_df = await _read(custodian_file, "CustodianData", 0)
+    cust_df = await _read(custodian_file, "CustodianData", None)
 
     files_used = ", ".join(
         f.filename for f in [nav_file, system_report_file, custodian_file] if f is not None

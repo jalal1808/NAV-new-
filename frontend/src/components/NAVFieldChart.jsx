@@ -84,10 +84,10 @@ export default function NAVFieldChart({ navResult }) {
             width={140}
           />
           <Tooltip content={<CustomTooltip />} />
-          <Bar dataKey="submitted" name="Submitted" fill="#1677ff" fillOpacity={0.85} radius={[0, 4, 4, 0]} barSize={10}>
+          <Bar dataKey="submitted" name="Calculated NAV" fill="#1677ff" fillOpacity={0.85} radius={[0, 4, 4, 0]} barSize={10}>
             <LabelList dataKey="submitted" position="right" formatter={fmt} style={{ fontSize: 10, fill: "#595959" }} />
           </Bar>
-          <Bar dataKey="calculated" name="Calculated" fill="#52c41a" fillOpacity={0.85} radius={[0, 4, 4, 0]} barSize={10}>
+          <Bar dataKey="calculated" name="Submitted NAV" fill="#52c41a" fillOpacity={0.85} radius={[0, 4, 4, 0]} barSize={10}>
             {data.map((entry, i) => (
               <Cell
                 key={i}

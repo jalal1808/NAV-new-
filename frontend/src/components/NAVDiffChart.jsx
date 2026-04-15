@@ -1,4 +1,4 @@
-import { Card, Empty } from "antd";
+import { Card } from "antd";
 import {
   Bar,
   BarChart,
@@ -21,7 +21,7 @@ const CustomTooltip = ({ active, payload, label }) => {
     <div style={{ background: "#fff", border: "1px solid #f0f0f0", borderRadius: 8, padding: "10px 14px", fontSize: 13 }}>
       <div style={{ fontWeight: 700, marginBottom: 4 }}>{label}</div>
       <div style={{ color: ok ? "#52c41a" : "#ff4d4f" }}>
-        Difference: {diff > 0 ? "+" : ""}{diff.toFixed(4)}
+        Calc. NAV − Sub. NAV: {diff > 0 ? "+" : ""}{diff.toFixed(4)}
       </div>
       <div style={{ color: "#8c8c8c", fontSize: 11 }}>
         {ok ? "Within tolerance" : `Exceeds ±${TOLERANCE} tolerance`}
@@ -47,7 +47,7 @@ export default function NAVDiffChart({ dates }) {
 
   return (
     <Card
-      title="NAV Per Unit — Difference per Date"
+      title="NAV Per Unit — Difference per Date (Calc. NAV − Sub. NAV)"
       style={{ borderRadius: 12, marginBottom: 24 }}
     >
       <ResponsiveContainer width="100%" height={240}>

@@ -25,8 +25,8 @@ export default function NAVTrendChart({ dates, selectedDate }) {
     .filter((d) => !d.nav_blocked && d.nav_result)
     .map((d) => ({
       date: d.date,
-      Submitted: d.nav_result.fields?.["NAV Per Unit"]?.submitted ?? null,
-      Calculated: d.nav_result.fields?.["NAV Per Unit"]?.calculated ?? null,
+      "Calculated NAV": d.nav_result.fields?.["NAV Per Unit"]?.submitted ?? null,
+      "Submitted NAV": d.nav_result.fields?.["NAV Per Unit"]?.calculated ?? null,
     }));
 
   if (data.length === 0) {
@@ -37,14 +37,14 @@ export default function NAVTrendChart({ dates, selectedDate }) {
     );
   }
 
-  const allVals = data.flatMap((d) => [d.Submitted, d.Calculated]).filter((v) => v != null);
+  const allVals = data.flatMap((d) => [d["Calculated NAV"], d["Submitted NAV"]]).filter((v) => v != null);
   const minVal = Math.min(...allVals);
   const maxVal = Math.max(...allVals);
   const padding = (maxVal - minVal) * 0.1 || 0.5;
 
   return (
     <Card
-      title="NAV Per Unit — Submitted vs Calculated (all dates)"
+      title="NAV Per Unit — Calculated NAV vs Submitted NAV (all dates)"
       style={{ borderRadius: 12, marginBottom: 24 }}
     >
       <ResponsiveContainer width="100%" height={260}>
@@ -71,7 +71,7 @@ export default function NAVTrendChart({ dates, selectedDate }) {
           )}
           <Line
             type="monotone"
-            dataKey="Submitted"
+            dataKey="Calculated NAV"
             stroke="#1677ff"
             strokeWidth={2}
             dot={{ r: 4 }}
@@ -79,7 +79,7 @@ export default function NAVTrendChart({ dates, selectedDate }) {
           />
           <Line
             type="monotone"
-            dataKey="Calculated"
+            dataKey="Submitted NAV"
             stroke="#52c41a"
             strokeWidth={2}
             strokeDasharray="5 3"

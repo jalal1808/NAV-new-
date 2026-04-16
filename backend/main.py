@@ -1,7 +1,7 @@
 import io
 import sys
 import os
-from typing import Optional
+from typing import List, Optional
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -184,6 +184,88 @@ async def validate(file: UploadFile = File(...)):
 # ---------------------------------------------------------------------------
 # Endpoint 2 — individual sheet files
 # ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Endpoint 3 — folder of individual Excel files (auto-detect roles)
+# ---------------------------------------------------------------------------
+
+# Maps known sheet names to their validation role
+_SHEET_ROLE = {
+    "NAV":           "nav",
+    "System Report": "system_report",
+    "CustodianData": "custodian",
+}
+
+# Filename keyword patterns used as fallback
+_FILENAME_PATTERNS: dict[str, list[str]] = {
+    "nav":           ["nav"],
+    "system_report": ["system", "sysreport", "systemreport", "sys_report"],
+    "custodian":     ["custodian", "cust"],
+}
+
+
+def _detect_role(filename: str, sheet_names: list[str]) -> tuple[str | None, str | None]:
+    """Return (role, sheet_name_to_read) for a file, or (None, None) if unrecognised."""
+    # Prefer detection by sheet name — most reliable
+    for sheet, role in _SHEET_ROLE.items():
+        if sheet in sheet_names:
+            return role, sheet
+
+    # Fall back to filename keyword matching
+    name = filename.lower().replace("_", "").replace("-", "").replace(" ", "")
+    for role, patterns in _FILENAME_PATTERNS.items():
+        if any(p in name for p in patterns):
+            return role, sheet_names[0] if sheet_names else None
+
+    return None, None
+
+
+@app.post("/api/validate-folder")
+async def validate_folder(files: List[UploadFile] = File(...)):
+    """Accept multiple Excel files from a folder and auto-assign roles."""
+    assigned: dict[str, tuple[pd.DataFrame, str]] = {}  # role → (df, filename)
+
+    for upload in files:
+        if not upload.filename.endswith((".xlsx", ".xls")):
+            continue
+        contents = await upload.read()
+        try:
+            xls = pd.ExcelFile(io.BytesIO(contents))
+        except Exception:
+            continue
+
+        role, sheet_to_read = _detect_role(upload.filename, xls.sheet_names)
+        if role and role not in assigned and sheet_to_read:
+            df = pd.read_excel(xls, sheet_name=sheet_to_read, header=None)
+            assigned[role] = (df, upload.filename)
+
+    if not assigned:
+        raise HTTPException(
+            status_code=400,
+            detail="No recognisable Excel files found. Check that the folder contains .xlsx files.",
+        )
+    if "nav" not in assigned:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                'NAV file not detected. Ensure a file has "nav" in its name '
+                'or contains a sheet named "NAV".'
+            ),
+        )
+
+    nav_df  = assigned.get("nav",           (None, ""))[0]
+    sys_df  = assigned.get("system_report", (None, ""))[0]
+    cust_df = assigned.get("custodian",     (None, ""))[0]
+
+    files_used     = ", ".join(v[1] for v in assigned.values())
+    roles_detected = {role: fname for role, (_, fname) in assigned.items()}
+
+    result = run_validation(nav_df, sys_df, cust_df, source_label=files_used)
+    result["filename"]       = files_used
+    result["upload_mode"]    = "folder"
+    result["roles_detected"] = roles_detected
+    return result
+
 
 @app.post("/api/validate-sheets")
 async def validate_sheets(
